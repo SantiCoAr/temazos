@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0d0b1f">
+  <meta name="description" content="Juego estilo Hitster: escucha la canción, adivina título, artista y año y ordénala en tu línea del tiempo. 600 éxitos de 1966 a 2025.">
+  <title>Temazos · Juego musical</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23ff3d8b'/%3E%3Ctext x='32' y='45' font-size='38' text-anchor='middle' font-family='Arial Black,Arial' font-weight='900' fill='white'%3E%3F%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css?v=1">
+</head>
+<body>
+  <div id="app">
+    <header id="topbar" class="topbar" hidden></header>
+    <main id="screen" class="screen"></main>
+    <footer id="actionbar" class="actionbar" hidden></footer>
+  </div>
+  <div id="modal-root"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <audio id="preview-audio" preload="auto" playsinline></audio>
+  <noscript><p style="padding:24px;color:#fff">Necesitas activar JavaScript para jugar.</p></noscript>
+  <script src="js/songs.js?v=1"></script>
+  <script src="js/app.js?v=1"></script>
+</body>
+</html>

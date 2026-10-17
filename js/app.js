@@ -36,11 +36,12 @@
   // ---------------------------------------------------------------------------
   const slug = (s) => s.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
   const toSong = (col) => ([y, t, a, x]) => ({ id: `${y}-${slug(t)}`, y, t, a, alt: (x && x.alt) || [], pref: (x && x.pref) || '', col });
-  // Cada colección es un modo de juego con su propio mazo y su propia memoria de canciones ya escuchadas.
+  // Cada colección es un modo de juego con su propio mazo. La memoria de canciones ya escuchadas es
+  // COMPARTIDA: una canción que sale en un modo deja de salir también en el otro (mismo id en ambos).
   const COLLECTIONS = {
     clasica: { key: 'clasica', name: 'Clásica', songs: (window.SONGS || []).map(toSong('clasica')), heardKey: 'heard', min: 1966, max: 2025,
       desc: 'Las 10 más escuchadas de cada año, de 1966 a 2025.' },
-    d2000: { key: 'd2000', name: 'Desde 2000', songs: (window.SONGS_2000 || []).map(toSong('d2000')), heardKey: 'heard.d2000', min: 2000, max: 2025,
+    d2000: { key: 'd2000', name: 'Desde 2000', songs: (window.SONGS_2000 || []).map(toSong('d2000')), heardKey: 'heard', min: 2000, max: 2025,
       desc: 'Las más escuchadas hoy que salieron de 2000 a 2025: 20 por año y artistas variados.' },
   };
   const colOf = (k) => COLLECTIONS[k] || COLLECTIONS.clasica;
@@ -481,6 +482,14 @@
   if (!COLLECTIONS[settings.collection]) settings.collection = 'clasica';
   if (!settings.ranges) settings.ranges = { clasica: [settings.yearFrom, settings.yearTo] };
   const saveSettings = () => store.set('settings', settings);
+  (() => {
+    const old = store.get('heard.d2000', null);
+    if (!old) return;
+    const all = store.get('heard', []);
+    for (const id of old) if (!all.includes(id)) all.push(id);
+    store.set('heard', all);
+    store.del('heard.d2000');
+  })();
   // Años elegidos para la colección actual (cada colección recuerda los suyos)
   function curRange() {
     const c = colOf(settings.collection);
@@ -529,14 +538,19 @@
       const inPool = new Set(pool);
       store.set(col.heardKey, [...heard].filter((id) => !inPool.has(id)));
       fresh = pool;
-      toast(`Ya habíais oído casi todas las de «${col.name}»: vuelven a entrar todas`);
+      toast(`Ya habíais oído casi todas las de «${col.name}»: vuelven a entrar las de esos años`);
     }
     return shuffle(fresh);
   }
   function draw() {
+    // Saltamos las que ya se oyeron después de barajar (por ejemplo, en una partida del otro modo).
+    const heard = heardSet(state.collection);
+    while (state.deck.length && heard.has(state.deck[state.deck.length - 1])) state.deck.pop();
     if (!state.deck.length) {
       const busy = new Set([...state.players.flatMap((p) => p.cards), ...(state.team ? state.team.cards : [])]);
-      state.deck = shuffle(songsInRange(state.collection, state.yearFrom, state.yearTo).map((s) => s.id).filter((id) => !busy.has(id)));
+      const all = songsInRange(state.collection, state.yearFrom, state.yearTo).map((s) => s.id).filter((id) => !busy.has(id));
+      const fresh = all.filter((id) => !heard.has(id));
+      state.deck = shuffle(fresh.length ? fresh : all);
       toast('Se acabó el mazo: barajo otra vez');
     }
     const id = state.deck.pop();
@@ -753,7 +767,8 @@
         <div class="row"><span>Años</span>
           <span class="years"><select id="yearFrom" aria-label="Desde">${yearOpts(yFrom, col.min, yTo)}</select> – <select id="yearTo" aria-label="Hasta">${yearOpts(yTo, yFrom, col.max)}</select></span></div>
         <p class="hint">${pool.length} canciones · <b>${fresh}</b> sin escuchar todavía en «${esc(col.name)}»</p>
-        ${fresh < pool.length ? `<button class="btn small block" data-act="reset-heard" style="margin-top:8px">↻ Volver a poner todas las de «${esc(col.name)}»</button>` : ''}
+        <p class="hint" style="margin-top:4px">La lista de canciones ya escuchadas es la misma para los dos modos.</p>
+        ${heardSet(col.key).size ? '<button class="btn small block" data-act="reset-heard" style="margin-top:8px">↻ Volver a poner todas las canciones</button>' : ''}
       </section>
       <section class="panel">
         <h2>👥 Jugadores <span class="n">${s.players.length}</span></h2>
@@ -1172,13 +1187,11 @@
       case 'rm-player': settings.players.splice(Number(el.dataset.i), 1); saveSettings(); render(); break;
       case 'rules-mode': settings.rules = el.dataset.v; saveSettings(); render(); break;
       case 'target': settings.target = Math.max(3, Math.min(20, settings.target + Number(el.dataset.d))); saveSettings(); render(); break;
-      case 'reset-heard': {
-        const c = colOf(settings.collection);
-        store.set(c.heardKey, []);
-        toast(`Vuelven a estar todas las canciones de «${c.name}»`);
+      case 'reset-heard':
+        store.set('heard', []);
+        toast('Vuelven a estar todas las canciones, en los dos modos');
         render();
         break;
-      }
       case 'pick-col': {
         const v = el.dataset.v;
         if (!COLLECTIONS[v] || settings.collection === v) return;

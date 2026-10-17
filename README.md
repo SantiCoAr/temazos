@@ -2,13 +2,13 @@
 
 Juego musical para el móvil con las reglas de **Hitster**: suena una canción, la colocas en tu línea del tiempo según el año en que salió y, si puedes, dices título y artista.
 
-- Dos colecciones, cada una es un modo de juego aparte con su propia memoria de canciones ya escuchadas:
+- Dos colecciones, cada una es un modo de juego aparte:
   - **Clásica**: 600 canciones, las 10 más escuchadas de cada año entre 1966 y 2025.
   - **Desde 2000**: 520 canciones, las más escuchadas hoy que salieron entre 2000 y 2025 (20 por año, como mucho 5 por artista).
 - Años contrastados con las cartas oficiales de Hitster cuando coinciden.
 - Modos Original, Pro, Experto y Cooperativo/solitario (3 vidas).
 - Fichas: saltar canción (1), ¡Hitster! para retar (1) y comprar carta (3). Máximo 5.
-- Las canciones que ya han salido no se repiten (tampoco entre partidas) hasta que se acaban o pulsas «Volver a poner todas». Cada colección lleva su propia cuenta.
+- Las canciones que ya han salido no se repiten (tampoco entre partidas) hasta que se acaban o pulsas «Volver a poner todas». La lista de canciones ya escuchadas es común a las dos colecciones: si una canción sale en un modo, tampoco vuelve a salir en el otro.
 - Todo se guarda en el propio navegador. No hay servidor ni cuentas.
 
 ## Música

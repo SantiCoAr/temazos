@@ -35,8 +35,18 @@
   // Canciones
   // ---------------------------------------------------------------------------
   const slug = (s) => s.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
-  const SONGS = (window.SONGS || []).map(([y, t, a, x]) => ({ id: `${y}-${slug(t)}`, y, t, a, alt: (x && x.alt) || [], pref: (x && x.pref) || '' }));
-  const BY_ID = Object.fromEntries(SONGS.map((s) => [s.id, s]));
+  const toSong = (col) => ([y, t, a, x]) => ({ id: `${y}-${slug(t)}`, y, t, a, alt: (x && x.alt) || [], pref: (x && x.pref) || '', col });
+  // Cada colección es un modo de juego con su propio mazo y su propia memoria de canciones ya escuchadas.
+  const COLLECTIONS = {
+    clasica: { key: 'clasica', name: 'Clásica', songs: (window.SONGS || []).map(toSong('clasica')), heardKey: 'heard', min: 1966, max: 2025,
+      desc: 'Las 10 más escuchadas de cada año, de 1966 a 2025.' },
+    d2000: { key: 'd2000', name: 'Desde 2000', songs: (window.SONGS_2000 || []).map(toSong('d2000')), heardKey: 'heard.d2000', min: 2000, max: 2025,
+      desc: 'Las más escuchadas hoy que salieron de 2000 a 2025: 20 por año y artistas variados.' },
+  };
+  const colOf = (k) => COLLECTIONS[k] || COLLECTIONS.clasica;
+  const SONGS = COLLECTIONS.clasica.songs;
+  const BY_ID = {};
+  for (const c of Object.values(COLLECTIONS)) for (const x of c.songs) if (!BY_ID[x.id]) BY_ID[x.id] = x;
 
   // ---------------------------------------------------------------------------
   // Comparación de textos (para encontrar el audio y corregir respuestas)
@@ -468,10 +478,25 @@
   // ---------------------------------------------------------------------------
   const defaults = { players: ['Jugador 1', 'Jugador 2'], rules: 'original', coop: false, target: 10, yearFrom: MIN_YEAR, yearTo: MAX_YEAR, source: 'spotify' };
   let settings = Object.assign({}, defaults, store.get('settings', {}));
+  if (!COLLECTIONS[settings.collection]) settings.collection = 'clasica';
+  if (!settings.ranges) settings.ranges = { clasica: [settings.yearFrom, settings.yearTo] };
   const saveSettings = () => store.set('settings', settings);
+  // Años elegidos para la colección actual (cada colección recuerda los suyos)
+  function curRange() {
+    const c = colOf(settings.collection);
+    const r = settings.ranges[c.key] || [c.min, c.max];
+    const from = Math.min(Math.max(r[0] || c.min, c.min), c.max);
+    return [from, Math.min(Math.max(r[1] || c.max, from), c.max)];
+  }
+  function setRange(from, to) {
+    settings.ranges[settings.collection] = [from, Math.max(from, to)];
+    if (settings.collection === 'clasica') { settings.yearFrom = from; settings.yearTo = Math.max(from, to); }
+    saveSettings();
+  }
 
   let state = store.get('game', null);
   if (state && (state.v !== 1 || !Array.isArray(state.players) || !state.players.length)) state = null;
+  if (state && !COLLECTIONS[state.collection]) state.collection = 'clasica'; // partidas guardadas antes de las colecciones
   const save = () => store.set('game', state);
 
   const ui = { screen: 'setup', busy: false, playing: false, ended: false, needTap: false, error: '', challenger: null, startedAt: 0, failStreak: 0, guessOpen: false };
@@ -485,34 +510,37 @@
   const okSlots = (cards, y) => { const r = []; for (let k = 0; k <= cards.length; k++) if (slotOk(cards, k, y)) r.push(k); return r; };
   const rulesLabel = (r) => ({ original: 'Original', pro: 'Pro', expert: 'Experto' }[r] || 'Original');
 
-  function heardSet() { return new Set(store.get('heard', [])); }
-  function markHeard(id) {
-    const h = store.get('heard', []);
-    if (!h.includes(id)) { h.push(id); store.set('heard', h); }
+  function heardSet(colKey) { return new Set(store.get(colOf(colKey).heardKey, [])); }
+  function markHeard(id, colKey) {
+    const key = colOf(colKey).heardKey;
+    const h = store.get(key, []);
+    if (!h.includes(id)) { h.push(id); store.set(key, h); }
   }
-  function songsInRange(from, to) { return SONGS.filter((s) => s.y >= from && s.y <= to); }
+  function songsInRange(colKey, from, to) { return colOf(colKey).songs.filter((s) => s.y >= from && s.y <= to); }
 
   function buildDeck() {
-    const pool = songsInRange(settings.yearFrom, settings.yearTo).map((s) => s.id);
-    const heard = heardSet();
+    const col = colOf(settings.collection);
+    const [from, to] = curRange();
+    const pool = songsInRange(col.key, from, to).map((s) => s.id);
+    const heard = heardSet(col.key);
     let fresh = pool.filter((id) => !heard.has(id));
     const need = settings.players.length * settings.target * 2 + 15;
     if (fresh.length < Math.min(need, pool.length)) {
       const inPool = new Set(pool);
-      store.set('heard', [...heard].filter((id) => !inPool.has(id)));
+      store.set(col.heardKey, [...heard].filter((id) => !inPool.has(id)));
       fresh = pool;
-      toast('Ya habíais oído casi todas: vuelven a entrar todas las canciones');
+      toast(`Ya habíais oído casi todas las de «${col.name}»: vuelven a entrar todas`);
     }
     return shuffle(fresh);
   }
   function draw() {
     if (!state.deck.length) {
       const busy = new Set([...state.players.flatMap((p) => p.cards), ...(state.team ? state.team.cards : [])]);
-      state.deck = shuffle(songsInRange(state.yearFrom, state.yearTo).map((s) => s.id).filter((id) => !busy.has(id)));
+      state.deck = shuffle(songsInRange(state.collection, state.yearFrom, state.yearTo).map((s) => s.id).filter((id) => !busy.has(id)));
       toast('Se acabó el mazo: barajo otra vez');
     }
     const id = state.deck.pop();
-    markHeard(id);
+    markHeard(id, state.collection);
     return id;
   }
   function newGame() {
@@ -520,7 +548,7 @@
     const coop = settings.coop || names.length === 1;
     state = {
       v: 1, rules: settings.rules, coop, target: settings.target, source: settings.source,
-      yearFrom: settings.yearFrom, yearTo: settings.yearTo,
+      collection: colOf(settings.collection).key, yearFrom: curRange()[0], yearTo: curRange()[1],
       players: names.map((name, i) => ({ name, color: PLAYER_COLORS[i % PLAYER_COLORS.length], tokens: START_TOKENS, cards: [] })),
       team: coop ? { tokens: START_TOKENS, cards: [], lives: COOP_LIVES } : null,
       turn: 0, round: 1, deck: buildDeck(), cur: null, last: null, over: null,
@@ -696,13 +724,15 @@
     $('#topbar').hidden = true;
     $('#actionbar').hidden = true;
     const s = settings;
-    const pool = songsInRange(s.yearFrom, s.yearTo);
-    const heard = heardSet();
+    const col = colOf(s.collection);
+    const [yFrom, yTo] = curRange();
+    const pool = songsInRange(col.key, yFrom, yTo);
+    const heard = heardSet(col.key);
     const fresh = pool.filter((x) => !heard.has(x.id)).length;
     const solo = s.players.length === 1;
     const yearOpts = (sel, min, max) => { let h = ''; for (let y = min; y <= max; y++) h += `<option value="${y}" ${y === sel ? 'selected' : ''}>${y}</option>`; return h; };
     const resume = state && !state.over
-      ? `<div class="panel resume-card"><div><b>Partida en curso</b><div class="hint">Turno de ${esc(state.players[state.turn].name)} · ${rulesLabel(state.rules)}${state.coop ? ' · cooperativo' : ''}</div></div><button class="btn primary" data-act="resume">Continuar</button></div>` : '';
+      ? `<div class="panel resume-card"><div><b>Partida en curso</b><div class="hint">Turno de ${esc(state.players[state.turn].name)} · ${esc(colOf(state.collection).name)} · ${rulesLabel(state.rules)}${state.coop ? ' · cooperativo' : ''}</div></div><button class="btn primary" data-act="resume">Continuar</button></div>` : '';
     const rulesDesc = {
       original: 'Coloca la canción en tu línea del tiempo. Si aciertas título y artista, ganas una ficha.',
       pro: 'Para quedarte la carta tienes que colocarla bien <b>y</b> acertar título y artista.',
@@ -711,8 +741,20 @@
 
     $('#screen').innerHTML = `
       <div class="brand"><div class="logo">TEMAZOS</div>
-        <p>Escucha, adivina título, artista y año, y ordena las canciones en tu línea del tiempo. Reglas de Hitster · ${SONGS.length} éxitos de ${MIN_YEAR} a ${MAX_YEAR}.</p></div>
+        <p>Escucha, adivina título, artista y año, y ordena las canciones en tu línea del tiempo. Reglas de Hitster.</p></div>
       ${resume}
+      <section class="panel">
+        <h2>💿 Canciones</h2>
+        ${Object.values(COLLECTIONS).map((c) => `
+        <div class="source ${c.key === col.key ? 'on' : ''}" data-act="pick-col" data-v="${c.key}">
+          <label class="head"><input type="radio" name="col" value="${c.key}" ${c.key === col.key ? 'checked' : ''}> ${esc(c.name)} <span class="tag">${c.songs.length} canciones</span></label>
+          <p class="desc">${esc(c.desc)}</p>
+        </div>`).join('')}
+        <div class="row"><span>Años</span>
+          <span class="years"><select id="yearFrom" aria-label="Desde">${yearOpts(yFrom, col.min, yTo)}</select> – <select id="yearTo" aria-label="Hasta">${yearOpts(yTo, yFrom, col.max)}</select></span></div>
+        <p class="hint">${pool.length} canciones · <b>${fresh}</b> sin escuchar todavía en «${esc(col.name)}»</p>
+        ${fresh < pool.length ? `<button class="btn small block" data-act="reset-heard" style="margin-top:8px">↻ Volver a poner todas las de «${esc(col.name)}»</button>` : ''}
+      </section>
       <section class="panel">
         <h2>👥 Jugadores <span class="n">${s.players.length}</span></h2>
         <div id="players">${s.players.map((n, i) => `
@@ -732,9 +774,6 @@
         ${solo ? '' : `<label class="toggle"><input type="checkbox" id="coop" ${s.coop ? 'checked' : ''}><span><b>Cooperativo</b><br><span class="hint">Una sola línea del tiempo para todos y 3 vidas ❤️.</span></span></label>`}
         <div class="row"><span>Cartas para ganar</span>
           <div class="stepper"><button data-act="target" data-d="-1" aria-label="Menos">−</button><b>${s.target}</b><button data-act="target" data-d="1" aria-label="Más">＋</button></div></div>
-        <div class="row"><span>Años</span>
-          <span class="years"><select id="yearFrom" aria-label="Desde">${yearOpts(s.yearFrom, MIN_YEAR, s.yearTo)}</select> – <select id="yearTo" aria-label="Hasta">${yearOpts(s.yearTo, s.yearFrom, MAX_YEAR)}</select></span></div>
-        <p class="hint">${pool.length} canciones en el rango · <b>${fresh}</b> sin escuchar todavía${fresh < pool.length ? ' · <button class="btn link small" data-act="reset-heard">volver a ponerlas todas</button>' : ''}</p>
       </section>
       <section class="panel">
         <h2>🎧 Música</h2>
@@ -1074,7 +1113,7 @@
       ${rows.map((r) => `<div class="score-row"><span class="dot" style="--c:${r.color}"></span><span class="nm">${esc(r.name)}</span><span class="chip">🪙 ${r.tokens}</span><span class="chip">🃏 ${r.cards.length}/${state.target}</span></div>
         <div class="mini-tl">${sortedCards(r).map((s) => `<span style="--dc:${decadeColor(s.y)}" title="${esc(s.t)} — ${esc(s.a)}">${s.y}</span>`).join('')}</div>`).join('')}
       ${state.coop ? `<p class="hint">Vidas: ${state.team.lives} de ${COOP_LIVES}</p>` : ''}
-      <p class="hint">Ronda ${state.round} · modo ${rulesLabel(state.rules)}</p>`;
+      <p class="hint">Ronda ${state.round} · ${esc(colOf(state.collection).name)} · modo ${rulesLabel(state.rules)}</p>`;
   }
 
   function menuHTML() {
@@ -1133,7 +1172,19 @@
       case 'rm-player': settings.players.splice(Number(el.dataset.i), 1); saveSettings(); render(); break;
       case 'rules-mode': settings.rules = el.dataset.v; saveSettings(); render(); break;
       case 'target': settings.target = Math.max(3, Math.min(20, settings.target + Number(el.dataset.d))); saveSettings(); render(); break;
-      case 'reset-heard': store.set('heard', []); toast('Todas las canciones vuelven a estar disponibles'); render(); break;
+      case 'reset-heard': {
+        const c = colOf(settings.collection);
+        store.set(c.heardKey, []);
+        toast(`Vuelven a estar todas las canciones de «${c.name}»`);
+        render();
+        break;
+      }
+      case 'pick-col': {
+        const v = el.dataset.v;
+        if (!COLLECTIONS[v] || settings.collection === v) return;
+        settings.collection = v; saveSettings(); render();
+        break;
+      }
       case 'pick-src': {
         if (ev.target.closest('.sp-box')) return;
         const v = el.dataset.v;
@@ -1355,9 +1406,9 @@
     const t = ev.target;
     if (t.id === 'coop') { settings.coop = t.checked; saveSettings(); return; }
     if (t.id === 'yearFrom' || t.id === 'yearTo') {
-      settings[t.id] = Number(t.value);
-      if (settings.yearFrom > settings.yearTo) settings.yearTo = settings.yearFrom;
-      saveSettings(); render(); return;
+      const [f, to] = curRange();
+      if (t.id === 'yearFrom') setRange(Number(t.value), to); else setRange(f, Number(t.value));
+      render(); return;
     }
     if (t.id === 'sp-device') {
       const d = (Spotify.devices || []).find((x) => x.id === t.value);
@@ -1404,7 +1455,7 @@
   }
 
   // Para pruebas automáticas
-  window.__temazos = { SONGS, BY_ID, norm, pickBest, scoreCand, guessTitleOk, guessArtistOk, artistParts, get state() { return state; }, ui, Spotify, Preview };
+  window.__temazos = { SONGS, BY_ID, COLLECTIONS, norm, pickBest, scoreCand, guessTitleOk, guessArtistOk, artistParts, get state() { return state; }, ui, Spotify, Preview };
 
   init();
 })();
